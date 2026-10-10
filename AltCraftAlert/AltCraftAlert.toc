@@ -1,0 +1,8 @@
+## Interface: 30300
+## Title: AltCraftAlert
+## Notes: Announces alt profession cooldowns on login using DataStore
+## Author: Dyrella
+## Version: 1.0
+## Dependencies: DataStore, DataStore_Crafts, DataStore_Characters
+CooldownsList.lua
+AltCraftAlert.lua
