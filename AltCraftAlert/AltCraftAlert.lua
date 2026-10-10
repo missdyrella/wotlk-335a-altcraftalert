@@ -42,102 +42,258 @@ local function FormatTimeRemaining(seconds)
     end
 end
 
-local frame = CreateFrame("Frame")
-frame:RegisterEvent("PLAYER_ENTERING_WORLD")
+-- Map a raw craft name to its broader display category
+local function GetCategoryName(craftName)
+    if craftName:find("^Transmute:") then
+        return "Transmute"
+    elseif craftName:find("Alchemy Research") or craftName:find("Northrend Alchemy") then
+        return "Alchemy Research"
+    elseif craftName:find("Inscription Research") or craftName:find("Research:") then
+        return "Inscription Research"
+    end
+    return craftName
+end
 
-frame:SetScript("OnEvent", function(self)
-    self:UnregisterEvent("PLAYER_ENTERING_WORLD")
-    
-    local elapsed = 0
-    local timerFrame = CreateFrame("Frame")
-    timerFrame:SetScript("OnUpdate", function(tSelf, step)
-        elapsed = elapsed + step
-        if elapsed >= 3 then
-            tSelf:SetScript("OnUpdate", nil)
-            
-            local db = DataStore_CraftsDB
-            if not db or not db.global or not db.global.Characters then
-                print("|cffaf70ff[Crafting Cooldowns]|r DataStore_Crafts database not found.")
-                return
-            end
+local function IsCharCategoryEnabled(charName, catName)
+    if not AltCraftAlertDB then return true end
+    if not AltCraftAlertDB[charName] then return true end
+    if AltCraftAlertDB[charName][catName] == nil then return true end
+    return AltCraftAlertDB[charName][catName]
+end
 
-            print("|cffaf70ff[Crafting Cooldowns]|r")
-            local now = time()
-            local found = false
-            local cooldownSpells = AltCraftCooldowns_Spells or {}
+local function CheckCooldowns()
+    local db = DataStore_CraftsDB
+    if not db or not db.global or not db.global.Characters then
+        print("|cffaf70ff[Crafting Cooldowns]|r DataStore_Crafts database not found.")
+        return
+    end
 
-            for charKey, charData in pairs(db.global.Characters) do
-                local charName = charKey:match("%.([^%.]+)$") or charKey
-                local coloredName = GetColoredCharName(charName, charKey)
-                local lastUpdate = charData.lastUpdate or now
+    print("|cffaf70ff[Crafting Cooldowns]|r")
+    local now = time()
+    local found = false
+    local cooldownSpells = AltCraftCooldowns_Spells or {}
+
+    for charKey, charData in pairs(db.global.Characters) do
+        local charName = charKey:match("%.([^%.]+)$") or charKey
+        local coloredName = GetColoredCharName(charName, charKey)
+        local lastUpdate = charData.lastUpdate or now
+        
+        if charData.Professions then
+            for profName, profData in pairs(charData.Professions) do
                 
-                if charData.Professions then
-                    for profName, profData in pairs(charData.Professions) do
+                local activeCategories = {}
+                local knownCategories = {}
+
+                -- 1. Scan Active Cooldowns
+                if profData.Cooldowns then
+                    for _, cdString in ipairs(profData.Cooldowns) do
+                        local craftName, engineTimeStr, expireTimeStr = string.match(cdString, "^([^|]+)|([^|]+)|(%d+)")
+                        local expireTime = tonumber(expireTimeStr)
+                        local engineTime = tonumber(engineTimeStr)
                         
-                        -- Category tracking to prevent duplicates for shared CDs
-                        local activeCategories = {}
-                        local knownCategories = {}
+                        if craftName and expireTime then
+                            
+                            local rem = 0
+                            if expireTime > now then
+                                rem = expireTime - now
+                            elseif engineTime and lastUpdate then
+                                local elapsedSinceUpdate = now - lastUpdate
+                                local totalDuration = expireTime - (lastUpdate - engineTime)
+                                rem = totalDuration - elapsedSinceUpdate
+                            end
+                            
+                            local categoryName = GetCategoryName(craftName)
+                            activeCategories[categoryName] = true
 
-                        -- 1. Scan Active Cooldowns
-                        if profData.Cooldowns then
-                            for _, cdString in ipairs(profData.Cooldowns) do
-                                local craftName, engineTimeStr, expireTimeStr = string.match(cdString, "^([^|]+)|([^|]+)|(%d+)")
-                                local expireTime = tonumber(expireTimeStr)
-                                local engineTime = tonumber(engineTimeStr)
-                                
-                                if craftName and expireTime then
-                                    found = true
-                                    
-                                    local rem = 0
-                                    if expireTime > now then
-                                        rem = expireTime - now
-                                    elseif engineTime and lastUpdate then
-                                        local elapsedSinceUpdate = now - lastUpdate
-                                        local totalDuration = expireTime - (lastUpdate - engineTime)
-                                        rem = totalDuration - elapsedSinceUpdate
-                                    end
-                                    
-                                    -- Map to category if it's a known shared spell
-                                    local categoryName = craftName
-                                    if craftName:find("^Transmute:") then
-                                        categoryName = "Transmute"
-                                    elseif craftName:find("Research") then
-                                        categoryName = "Inscription Research"
-                                    end
-
-                                    activeCategories[categoryName] = true
-                                    local timeString = FormatTimeRemaining(rem)
-                                    print(string.format(" - %s: |cffaf70ff<%s>|r - %s", coloredName, craftName, timeString))
-                                end
+                            if IsCharCategoryEnabled(charName, categoryName) then
+                                found = true
+                                local timeString = FormatTimeRemaining(rem)
+                                print(string.format(" - %s: |cffaf70ff<%s>|r - %s", coloredName, craftName, timeString))
                             end
                         end
+                    end
+                end
 
-                        -- 2. Scan Learned Crafts for READY shared categories
-                        if profData.Crafts then
-                            for _, craftString in ipairs(profData.Crafts) do
-                                local spellID = tonumber(craftString:match("^%d+|(%d+)"))
-                                if spellID and cooldownSpells[spellID] then
-                                    local info = cooldownSpells[spellID]
-                                    local cat = info.category
-                                    local displayName = info.name
+                -- 2. Scan Learned Crafts for READY shared categories
+                if profData.Crafts then
+                    for _, craftString in ipairs(profData.Crafts) do
+                        local spellID = tonumber(craftString:match("^%d+|(%d+)"))
+                        if spellID and cooldownSpells[spellID] then
+                            local info = cooldownSpells[spellID]
+                            local cat = info.category
+                            local displayName = info.name
 
-                                    -- If category is not on active cooldown and hasn't already been reported
-                                    if not activeCategories[cat] and not knownCategories[cat] then
-                                        knownCategories[cat] = true
-                                        found = true
-                                        print(string.format(" - %s: |cffaf70ff<%s>|r - %s", coloredName, displayName, "|cffffd100READY!|r"))
-                                    end
-                                end
+                            if IsCharCategoryEnabled(charName, cat) and not activeCategories[cat] and not knownCategories[cat] then
+                                knownCategories[cat] = true
+                                found = true
+                                print(string.format(" - %s: |cffaf70ff<%s>|r - %s", coloredName, displayName, "|cffffd100READY!|r"))
                             end
                         end
-                        
+                    end
+                end
+                
+            end
+        end
+    end
+
+    if not found then
+        print(" No active or tracked craft cooldowns found.")
+    end
+end
+
+----------------------------------------------------
+-- Fully Dynamic Config Panel Construction
+----------------------------------------------------
+local configPanel = CreateFrame("Frame", "AltCraftAlertOptionsPanel", UIParent)
+configPanel.name = "AltCraftAlert"
+
+local function CreateConfigGUI()
+    local title = configPanel:CreateFontString(nil, "ARTWORK", "GameFontNormalLarge")
+    title:SetPoint("TOPLEFT", 16, -16)
+    title:SetText("AltCraftAlert Options")
+
+    local subtext = configPanel:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+    subtext:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 0, -8)
+    subtext:SetText("Toggle monitoring for detected cooldowns per character.")
+
+    local scrollFrame = CreateFrame("ScrollFrame", "ACA_ScrollFrame", configPanel, "UIPanelScrollFrameTemplate")
+    scrollFrame:SetPoint("TOPLEFT", subtext, "BOTTOMLEFT", 0, -12)
+    scrollFrame:SetPoint("BOTTOMRIGHT", configPanel, "BOTTOMRIGHT", -32, 16)
+
+    local content = CreateFrame("Frame", "ACA_ScrollContent", scrollFrame)
+    content:SetSize(380, 600)
+    scrollFrame:SetScrollChild(content)
+
+    local db = DataStore_CraftsDB
+    if not db or not db.global or not db.global.Characters then return end
+
+    local cooldownSpells = AltCraftCooldowns_Spells or {}
+    local cbCount = 0
+    local yOffset = -8
+
+    for charKey, charData in pairs(db.global.Characters) do
+        local charName = charKey:match("%.([^%.]+)$") or charKey
+        
+        if not AltCraftAlertDB[charName] then
+            AltCraftAlertDB[charName] = {}
+        end
+
+        -- Discover all unique categories this character actually possesses
+        local charCategories = {}
+        local seenCats = {}
+
+        if charData.Professions then
+            for profName, profData in pairs(charData.Professions) do
+                -- 1. Active Cooldowns
+                if profData.Cooldowns then
+                    for _, cdString in ipairs(profData.Cooldowns) do
+                        local craftName = string.match(cdString, "^([^|]+)|")
+                        if craftName then
+                            local cat = GetCategoryName(craftName)
+                            if not seenCats[cat] then
+                                seenCats[cat] = true
+                                table.insert(charCategories, cat)
+                            end
+                        end
+                    end
+                end
+
+                -- 2. Learned Crafts
+                if profData.Crafts then
+                    for _, craftString in ipairs(profData.Crafts) do
+                        local spellID = tonumber(craftString:match("^%d+|(%d+)"))
+                        if spellID and cooldownSpells[spellID] then
+                            local cat = cooldownSpells[spellID].category
+                            if not seenCats[cat] then
+                                seenCats[cat] = true
+                                table.insert(charCategories, cat)
+                            end
+                        end
                     end
                 end
             end
-
-            if not found then
-                print(" No recorded craft cooldowns found in DataStore.")
-            end
         end
-    end)
+
+        -- Only create UI elements if character has recorded cooldowns
+        if #charCategories > 0 then
+            table.sort(charCategories)
+
+            -- Character Header
+            local header = content:CreateFontString(nil, "ARTWORK", "GameFontNormal")
+            header:SetPoint("TOPLEFT", content, "TOPLEFT", 0, yOffset)
+            header:SetText(GetColoredCharName(charName, charKey))
+            yOffset = yOffset - 20
+
+            -- Character Checkboxes
+            for _, cat in ipairs(charCategories) do
+                cbCount = cbCount + 1
+                local cb = CreateFrame("CheckButton", "ACA_CharCB_" .. cbCount, content, "InterfaceOptionsCheckButtonTemplate")
+                cb:SetPoint("TOPLEFT", content, "TOPLEFT", 12, yOffset)
+
+                _G[cb:GetName() .. "Text"]:SetText(cat)
+                cb.charName = charName
+                cb.cat = cat
+
+                cb:SetScript("OnShow", function(self)
+                    local enabled = AltCraftAlertDB[self.charName][self.cat]
+                    if enabled == nil then enabled = true end
+                    self:SetChecked(enabled)
+                end)
+
+                cb:SetScript("OnClick", function(self)
+                    AltCraftAlertDB[self.charName][self.cat] = self:GetChecked() and true or false
+                end)
+
+                yOffset = yOffset - 26
+            end
+
+            -- Space between characters
+            yOffset = yOffset - 10
+        end
+    end
+
+    InterfaceOptions_AddCategory(configPanel)
+end
+
+----------------------------------------------------
+-- Events & Initialization
+----------------------------------------------------
+local frame = CreateFrame("Frame")
+frame:RegisterEvent("ADDON_LOADED")
+frame:RegisterEvent("PLAYER_ENTERING_WORLD")
+
+frame:SetScript("OnEvent", function(self, event, arg1)
+    if event == "ADDON_LOADED" and arg1 == "AltCraftAlert" then
+        if not AltCraftAlertDB then
+            AltCraftAlertDB = {}
+        end
+        CreateConfigGUI()
+    elseif event == "PLAYER_ENTERING_WORLD" then
+        self:UnregisterEvent("PLAYER_ENTERING_WORLD")
+        
+        local elapsed = 0
+        local timerFrame = CreateFrame("Frame")
+        timerFrame:SetScript("OnUpdate", function(tSelf, step)
+            elapsed = elapsed + step
+            if elapsed >= 3 then
+                tSelf:SetScript("OnUpdate", nil)
+                CheckCooldowns()
+            end
+        end)
+    end
 end)
+
+----------------------------------------------------
+-- Slash Commands
+----------------------------------------------------
+SLASH_ALTCRAFTALERT1 = "/aca"
+SLASH_ALTCRAFTALERT2 = "/altcraft"
+SlashCmdList["ALTCRAFTALERT"] = function(msg)
+    local cmd = string.lower(msg or "")
+    if cmd == "config" or cmd == "options" or cmd == "opt" then
+        InterfaceOptionsFrame_OpenToCategory(configPanel)
+        InterfaceOptionsFrame_OpenToCategory(configPanel)
+    else
+        CheckCooldowns()
+    end
+end
