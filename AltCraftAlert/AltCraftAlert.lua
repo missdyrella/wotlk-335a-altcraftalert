@@ -44,7 +44,7 @@ end
 
 -- Map a raw craft name to its broader display category
 local function GetCategoryName(craftName)
-    if craftName:find("^Transmute:") then
+    if craftName:find("^Transmute:") or craftName:find("^Transmute ") then
         return "Transmute"
     elseif craftName:find("Alchemy Research") or craftName:find("Northrend Alchemy") then
         return "Alchemy Research"
@@ -82,7 +82,7 @@ local function CheckCooldowns()
             for profName, profData in pairs(charData.Professions) do
                 
                 local activeCategories = {}
-                local knownCategories = {}
+                local reportedCategories = {}
 
                 -- 1. Scan Active Cooldowns
                 if profData.Cooldowns then
@@ -105,10 +105,12 @@ local function CheckCooldowns()
                             local categoryName = GetCategoryName(craftName)
                             activeCategories[categoryName] = true
 
-                            if IsCharCategoryEnabled(charName, categoryName) then
+                            -- Only print once per category for each character
+                            if IsCharCategoryEnabled(charName, categoryName) and not reportedCategories[categoryName] then
+                                reportedCategories[categoryName] = true
                                 found = true
                                 local timeString = FormatTimeRemaining(rem)
-                                print(string.format(" - %s: |cffaf70ff<%s>|r - %s", coloredName, craftName, timeString))
+                                print(string.format(" - %s: |cffaf70ff<%s>|r - %s", coloredName, categoryName, timeString))
                             end
                         end
                     end
@@ -123,8 +125,8 @@ local function CheckCooldowns()
                             local cat = info.category
                             local displayName = info.name
 
-                            if IsCharCategoryEnabled(charName, cat) and not activeCategories[cat] and not knownCategories[cat] then
-                                knownCategories[cat] = true
+                            if IsCharCategoryEnabled(charName, cat) and not activeCategories[cat] and not reportedCategories[cat] then
+                                reportedCategories[cat] = true
                                 found = true
                                 print(string.format(" - %s: |cffaf70ff<%s>|r - %s", coloredName, displayName, "|cffffd100READY!|r"))
                             end
@@ -178,7 +180,6 @@ local function CreateConfigGUI()
             AltCraftAlertDB[charName] = {}
         end
 
-        -- Discover all unique categories this character actually possesses
         local charCategories = {}
         local seenCats = {}
 
@@ -214,17 +215,14 @@ local function CreateConfigGUI()
             end
         end
 
-        -- Only create UI elements if character has recorded cooldowns
         if #charCategories > 0 then
             table.sort(charCategories)
 
-            -- Character Header
             local header = content:CreateFontString(nil, "ARTWORK", "GameFontNormal")
             header:SetPoint("TOPLEFT", content, "TOPLEFT", 0, yOffset)
             header:SetText(GetColoredCharName(charName, charKey))
             yOffset = yOffset - 20
 
-            -- Character Checkboxes
             for _, cat in ipairs(charCategories) do
                 cbCount = cbCount + 1
                 local cb = CreateFrame("CheckButton", "ACA_CharCB_" .. cbCount, content, "InterfaceOptionsCheckButtonTemplate")
@@ -247,7 +245,6 @@ local function CreateConfigGUI()
                 yOffset = yOffset - 26
             end
 
-            -- Space between characters
             yOffset = yOffset - 10
         end
     end
