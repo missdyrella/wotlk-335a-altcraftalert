@@ -6,10 +6,9 @@ AltCraftCooldowns_Spells = {
     -- Jewelcrafting (Unique Cooldown)
     [62242] = { name = "Icy Prism", category = "Icy Prism" },
 
-    -- Inscription Research (Shared Category)
-    [61178] = { name = "Northrend Inscription Research", category = "Inscription Research" },
-    [61177] = { name = "Research: Ink of the Sea", category = "Inscription Research" },
-    [61288] = { name = "Minor Inscription Research", category = "Inscription Research" },
+    -- Inscription Research (Shared Category)   
+    [61288] = { name = "Minor Inscription Research", category = "Minor Inscription Research" },
+    [61177] = { name = "Northrend Inscription Research", category = "Northrend Inscription Research" },
 
     -- Alchemy Research (Unique Cooldown)
     [60893] = { name = "Northrend Alchemy Research", category = "Alchemy Research" },

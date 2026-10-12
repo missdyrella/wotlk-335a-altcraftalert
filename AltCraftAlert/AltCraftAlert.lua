@@ -44,12 +44,15 @@ end
 
 -- Map a raw craft name to its broader display category
 local function GetCategoryName(craftName)
-    if craftName:find("^Transmute:") or craftName:find("^Transmute ") then
+    local lower = string.lower(craftName)
+    if lower:find("transmute") then
         return "Transmute"
-    elseif craftName:find("Alchemy Research") or craftName:find("Northrend Alchemy") then
+    elseif lower:find("alchemy research") or lower:find("northrend alchemy") then
         return "Alchemy Research"
-    elseif craftName:find("Inscription Research") or craftName:find("Research:") then
-        return "Inscription Research"
+    elseif lower:find("minor inscription") then
+        return "Minor Inscription Research"
+    elseif lower:find("northrend inscription") then
+        return "Northrend Inscription Research"
     end
     return craftName
 end

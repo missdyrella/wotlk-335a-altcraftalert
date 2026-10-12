@@ -2,7 +2,7 @@
 ## Title: AltCraftAlert
 ## Notes: Reports profession cooldown statuses across all alts using DataStore.
 ## Author: Dyrella
-## Version: 1.1
+## Version: 1.1.1
 ## SavedVariables: AltCraftAlertDB
 ## Dependencies: DataStore, DataStore_Crafts
 
